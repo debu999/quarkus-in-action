@@ -1,12 +1,15 @@
 package org.doogle.reservation.rest;
 
 import io.quarkus.logging.Log;
+import io.smallrye.graphql.client.GraphQLClient;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.SecurityContext;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.HashMap;
@@ -15,7 +18,7 @@ import java.util.Map;
 import org.doogle.reservation.Reservation;
 import org.doogle.reservation.ReservationsRepository;
 import org.doogle.reservation.inventory.Car;
-import org.doogle.reservation.inventory.InventoryClient;
+import org.doogle.reservation.inventory.GraphQLInventoryClient;
 import org.doogle.reservation.rental.Rental;
 import org.doogle.reservation.rental.RentalClient;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
@@ -27,14 +30,18 @@ import org.jboss.resteasy.reactive.RestQuery;
 public class ReservationResource {
 
   private final ReservationsRepository reservationsRepository;
-  private final InventoryClient inventoryClient;
   private final RentalClient rentalClient;
+  private final GraphQLInventoryClient inventoryClient;
 
-  public ReservationResource(ReservationsRepository reservations, InventoryClient inventoryClient,
-      @RestClient RentalClient rentalClient) {
+  @Inject
+  SecurityContext context;
+
+  public ReservationResource(ReservationsRepository reservations,
+      @RestClient RentalClient rentalClient,
+      @GraphQLClient("inventory") GraphQLInventoryClient inventoryClient) {
     this.reservationsRepository = reservations;
-    this.inventoryClient = inventoryClient;
     this.rentalClient = rentalClient;
+    this.inventoryClient = inventoryClient;
   }
 
   @GET
@@ -64,6 +71,8 @@ public class ReservationResource {
   @POST
   public Reservation make(Reservation reservation) {
 //    return reservationsRepository.save(reservation);
+    reservation = reservation.withUserId(
+        context.getUserPrincipal() != null ? context.getUserPrincipal().getName() : "anonymous");
     Reservation result = reservationsRepository.save(reservation);
     // this is just a dummy value for the time being
     String userId = "x";
@@ -72,6 +81,15 @@ public class ReservationResource {
       Log.info("Successfully started rental " + rental);
     }
     return result;
+  }
+
+  @GET
+  @Path("all")
+  public Collection<Reservation> allReservations() {
+    String userId =
+        context.getUserPrincipal() != null ? context.getUserPrincipal().getName() : null;
+    return reservationsRepository.findAll().stream()
+        .filter(reservation -> userId == null || userId.equals(reservation.userId())).toList();
   }
 
 }
