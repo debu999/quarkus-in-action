@@ -14,4 +14,11 @@ OpenJDK 64-Bit Server VM Temurin-23.0.1+11 (build 23.0.1+11, mixed mode, sharing
 - container build linux: `mvn package -Pnative -Dquarkus.native.container-build=true`
 - run native: `./target/quarkus-in-action-1.0.0-SNAPSHOT-runner`
 - run quarkus app: `java -jar target/quarkus-app/quarkus-run.jar`
+- In reservation-service i have a file application-db.properties and application.properties
+  - ```properties
+    pg_server=LOCAL_PG_SERVER
+    quarkus.datasource.jdbc.url=jdbc:postgresql://${pg_server}:5432/reservation?currentSchema=reservation
+    quarkus.datasource.username=PG_USER
+    quarkus.datasource.password=SECRET_PG_CREDS
+    ```
 - 
