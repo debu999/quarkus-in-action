@@ -14,13 +14,11 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.SecurityContext;
 import java.time.LocalDate;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Collectors;
 import org.doogle.reservation.entity.Reservation;
 import org.doogle.reservation.inventory.Car;
 import org.doogle.reservation.inventory.GraphQLInventoryClient;
-import org.doogle.reservation.rental.Rental;
 import org.doogle.reservation.rental.RentalClient;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
@@ -51,21 +49,23 @@ public class ReservationResource {
   public Uni<Collection<Car>> availability(
       @RestQuery @Parameter(name = "startDate", example = "2024-12-21") LocalDate startDate,
       @RestQuery @Parameter(name = "endDate", example = "2024-12-22") LocalDate endDate) {
-// obtain all cars from inventory
-    List<Car> availableCars = inventoryClient.allCars();
+    // obtain all cars from inventory
+    var availableCars = inventoryClient.allCars();
     // create a map from id to car
-    Map<Long, Car> carsById = new HashMap<>();
-    for (Car car : availableCars) {
-      carsById.put(car.id(), car);
-    }
-// get all current reservations
+    var carMap = availableCars.map(c -> c.stream().collect(Collectors.toMap(Car::id, c1 -> c1)));
+    // get all current reservations
     Uni<List<Reservation>> reservations = Reservation.listAll();
-// for each reservation, remove the car from the map
-    return reservations.invoke(r -> r.stream().forEach(reservation -> {
-      if (reservation.isReserved(startDate, endDate)) {
-        carsById.remove(reservation.carId);
-      }
-    })).replaceWith(carsById.values());
+    // for each reservation, remove the car from the map
+    return Uni.combine().all().unis(carMap, reservations).asTuple().map(tuple -> {
+      var cmap = tuple.getItem1();
+      var res = tuple.getItem2();
+      res.stream().forEach(reservation -> {
+        if (reservation.isReserved(startDate, endDate)) {
+          cmap.remove(reservation.carId);
+        }
+      });
+      return cmap.values();
+    });
   }
 
   @Consumes(MediaType.APPLICATION_JSON)
@@ -77,14 +77,17 @@ public class ReservationResource {
     //    reservation = reservation.withUserId(userId);
     reservation.userId = userId;
     //    Reservation result = reservationsRepository.save(reservation);
-    return Panache.withTransaction(reservation::persist).map(r -> (Reservation) r).log()
-        .invoke(r1 -> Log.info("Successfully reserved reservation " + r1)).invoke(r2 -> {
+    return Panache.withTransaction(reservation::<Reservation>persist).log()
+        .invoke(r1 -> Log.info("Successfully reserved reservation " + r1)).call(r2 -> {
           // this is just a dummy value for the time being
           //    String userId = "x";
           if (r2.startDay.equals(LocalDate.now())) {
-            Rental rental = rentalClient.start(userId, r2.id);
-            Log.info("Successfully started rental " + rental);
+            return rentalClient.start(userId, r2.id)
+                .invoke(rental -> Log.info("Successfully started rental " + rental))
+                .replaceWith(r2);
           }
+          return Uni.createFrom().item(r2);
+
         });
   }
 

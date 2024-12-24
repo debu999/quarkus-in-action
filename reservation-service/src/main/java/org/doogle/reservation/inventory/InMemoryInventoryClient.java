@@ -1,5 +1,6 @@
 package org.doogle.reservation.inventory;
 
+import io.smallrye.mutiny.Uni;
 import jakarta.inject.Singleton;
 import java.util.List;
 
@@ -11,7 +12,7 @@ public class InMemoryInventoryClient implements InventoryClient {
       new Car(4L, "XYZ-987", "Ford", "Focus"));
 
   @Override
-  public List<Car> allCars() {
-    return ALL_CARS;
+  public Uni<List<Car>> allCars() {
+    return Uni.createFrom().item(ALL_CARS);
   }
 }
