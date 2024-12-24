@@ -113,6 +113,10 @@
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-test-hibernate-reactive-panache</artifactId>
     </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-hibernate-reactive-rest-data-panache</artifactId>
+    </dependency>
   </dependencies>
 
   <build>
