@@ -22,7 +22,7 @@ public class ReservationPersistenceTest {
     asserter.assertNotNull(() -> Uni.createFrom().item(reservation.id));
     asserter.assertEquals(Reservation::countAll, 1L);
     asserter.assertEquals(
-        () -> Reservation.findByIdValue(reservation.id).map(r -> r).map(r1 -> r1.id),
+        () -> Reservation.findByIdValue(reservation.id).map(r1 -> r1.id),
         1L);
   }
 }

@@ -12,6 +12,7 @@ import io.quarkus.test.junit.DisabledOnIntegrationTest;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.RestAssured;
 import io.restassured.http.ContentType;
+import io.smallrye.mutiny.Uni;
 import java.net.URL;
 import java.time.LocalDate;
 import java.util.Collections;
@@ -45,7 +46,8 @@ class ReservationResourceTest {
   public void testMakingAReservationAndCheckAvailability() {
     GraphQLInventoryClient inventoryClientMock = mock(GraphQLInventoryClient.class);
     Car peugeot = new Car(1L, "ABC 123", "Peugeot", "406");
-    when(inventoryClientMock.allCars()).thenReturn(Collections.singletonList(peugeot));
+    when(inventoryClientMock.allCars()).thenReturn(
+        Uni.createFrom().item(Collections.singletonList(peugeot)));
     installMockForType(inventoryClientMock, GraphQLInventoryClient.class);
     String startDate = "2022-01-01";
     String endDate = "2022-01-10";

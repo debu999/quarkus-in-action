@@ -4,6 +4,7 @@ import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.logging.Log;
 import io.smallrye.graphql.client.GraphQLClient;
 import io.smallrye.mutiny.Uni;
+import io.smallrye.reactive.messaging.MutinyEmitter;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -13,14 +14,17 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.SecurityContext;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.doogle.reservation.billing.Invoice;
 import org.doogle.reservation.entity.Reservation;
 import org.doogle.reservation.inventory.Car;
 import org.doogle.reservation.inventory.GraphQLInventoryClient;
 import org.doogle.reservation.rental.RentalClient;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
+import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.resteasy.reactive.RestQuery;
 
@@ -28,9 +32,14 @@ import org.jboss.resteasy.reactive.RestQuery;
 @Produces(MediaType.APPLICATION_JSON)
 public class ReservationResource {
 
+  public static final double STANDARD_RATE_PER_DAY = 1999.99;
   //  private final ReservationsRepository reservationsRepository;
   private final RentalClient rentalClient;
   private final GraphQLInventoryClient inventoryClient;
+
+  @Inject
+  @Channel("invoices")
+  MutinyEmitter<Invoice> invoiceEmitter;
 
   @Inject
   SecurityContext context;
@@ -42,6 +51,11 @@ public class ReservationResource {
 //    this.reservationsRepository = reservationsRepository;
     this.rentalClient = rentalClient;
     this.inventoryClient = inventoryClient;
+  }
+
+  private double computePrice(Reservation reservation) {
+    return (ChronoUnit.DAYS.between(reservation.startDay, reservation.endDay) + 1)
+        * STANDARD_RATE_PER_DAY;
   }
 
   @GET
@@ -59,7 +73,7 @@ public class ReservationResource {
     return Uni.combine().all().unis(carMap, reservations).asTuple().map(tuple -> {
       var cmap = tuple.getItem1();
       var res = tuple.getItem2();
-      res.stream().forEach(reservation -> {
+      res.forEach(reservation -> {
         if (reservation.isReserved(startDate, endDate)) {
           cmap.remove(reservation.carId);
         }
@@ -77,18 +91,20 @@ public class ReservationResource {
     //    reservation = reservation.withUserId(userId);
     reservation.userId = userId;
     //    Reservation result = reservationsRepository.save(reservation);
-    return Panache.withTransaction(reservation::<Reservation>persist).log()
-        .invoke(r1 -> Log.info("Successfully reserved reservation " + r1)).call(r2 -> {
-          // this is just a dummy value for the time being
-          //    String userId = "x";
-          if (r2.startDay.equals(LocalDate.now())) {
-            return rentalClient.start(userId, r2.id)
-                .invoke(rental -> Log.info("Successfully started rental " + rental))
-                .replaceWith(r2);
-          }
-          return Uni.createFrom().item(r2);
+    return Panache.withTransaction(reservation::<Reservation>persist).log().call(r1 -> {
+      Log.info("Successfully reserved reservation " + r1);
+      var invoiceUni = invoiceEmitter.send(new Invoice(r1, computePrice(r1))).onFailure().invoke(
+          throwable -> Log.infof("Couldn't create invoice for %s. %s%n", r1,
+              throwable.getMessage()));
+      // this is just a dummy value for the time being
+      //    String userId = "x";
+      if (r1.startDay.equals(LocalDate.now())) {
+        return invoiceUni.chain(() -> rentalClient.start(userId, r1.id)
+            .invoke(rental -> Log.info("Successfully started rental " + rental)).replaceWith(r1));
+      }
+      return Uni.createFrom().item(r1);
 
-        });
+    });
   }
 
   @GET
