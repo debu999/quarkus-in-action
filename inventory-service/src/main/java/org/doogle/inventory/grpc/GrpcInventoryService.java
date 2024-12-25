@@ -28,7 +28,7 @@ public class GrpcInventoryService implements InventoryService {
       return c;
     }).call(car -> {
       Log.info("Persisting " + car);
-      return Panache.withTransaction(car::persist).map(c -> (Car) c).log();
+      return Panache.withTransaction(car::<Car>persist).log();
     }).map(car -> CarResponse.newBuilder().setLicensePlateNumber(car.licensePlateNumber)
         .setManufacturer(car.manufacturer).setModel(car.model).setId(car.id).build());
   }

@@ -22,7 +22,7 @@ public class GraphQLInventoryService {
 
   @Mutation
   public Uni<Car> register(Car car) {
-    return car.persist().map(c -> (Car) c).log();
+    return car.<Car>persist().log();
   }
 
   @Mutation
