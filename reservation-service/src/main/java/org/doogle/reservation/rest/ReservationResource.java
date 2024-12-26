@@ -38,7 +38,7 @@ public class ReservationResource {
   private final GraphQLInventoryClient inventoryClient;
 
   @Inject
-  @Channel("invoices")
+  @Channel("invoices-out")
   MutinyEmitter<Invoice> invoiceEmitter;
 
   @Inject

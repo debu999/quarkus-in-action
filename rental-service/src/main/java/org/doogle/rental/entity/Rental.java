@@ -6,8 +6,12 @@ import io.smallrye.mutiny.Uni;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 import org.bson.codecs.pojo.annotations.BsonProperty;
 
+@EqualsAndHashCode(callSuper = true)
+@Data
 @MongoEntity(database = "rental")
 public class Rental extends ReactivePanacheMongoEntity {
 
