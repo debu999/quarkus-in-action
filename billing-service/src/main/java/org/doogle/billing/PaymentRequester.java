@@ -2,8 +2,13 @@ package org.doogle.billing;
 
 import io.quarkus.logging.Log;
 import io.smallrye.common.annotation.Blocking;
+import io.smallrye.reactive.messaging.annotations.Broadcast;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.Random;
+import org.doogle.billing.data.InvoiceConfirmation;
+import org.doogle.billing.model.Invoice;
+import org.doogle.billing.model.InvoiceAdjust;
+import org.eclipse.microprofile.reactive.messaging.Acknowledgment;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Outgoing;
 
@@ -14,6 +19,7 @@ public class PaymentRequester {
 
   @Incoming("invoices-requests")
   @Outgoing("invoices-confirmations")
+  @Broadcast
   @Blocking
   public InvoiceConfirmation requestPayment(Invoice invoice) {
     payment(invoice.reservation.userId, invoice.totalPrice, invoice);
@@ -31,10 +37,21 @@ public class PaymentRequester {
       Log.error("Sleep interrupted.", e);
     }
   }
-  /* uncomment in order to consume confirmation here
+
+  // uncomment in order to consume confirmation here
   @Incoming("invoices-confirmations")
   public void consume(InvoiceConfirmation invoiceConfirmation) {
-  System.out.println(invoiceConfirmation);
+    Log.infov("invoice Confirmation Received {0}", invoiceConfirmation);
   }
-  */
+
+  @Incoming("invoices-adjust")
+  @Blocking
+  @Acknowledgment(Acknowledgment.Strategy.PRE_PROCESSING)
+  public void requestAdjustment(InvoiceAdjust invoiceAdjust) {
+    Log.info("Received invoice adjustment: " + invoiceAdjust);
+    payment(invoiceAdjust.userId, invoiceAdjust.price, invoiceAdjust);
+    invoiceAdjust.paid = true;
+    invoiceAdjust.persist();
+    Log.infof("Invoice adjustment %s is paid.", invoiceAdjust);
+  }
 }

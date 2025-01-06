@@ -21,6 +21,7 @@ public class Rental extends ReactivePanacheMongoEntity {
   public LocalDate endDate;
   @BsonProperty("active_indicator")
   public boolean active;
+  public boolean paid;
 
   public static Uni<Optional<Rental>> findByUserAndReservationIdsOptional(String userId,
       Long reservationId) {

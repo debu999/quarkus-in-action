@@ -36,24 +36,22 @@ public class RentalResource {
   public static final double STANDARD_PRICE_FOR_PROLONGED_DAY = 25.99;
   private final AtomicLong id = new AtomicLong(0);
 
-  @Inject
-  @RestClient
-  ReservationClient reservationClient;
+  @Inject @RestClient ReservationClient reservationClient;
 
   @Inject
   @Channel("invoices-adjust")
   MutinyEmitter<InvoiceAdjust> adjustmentEmitter;
 
-//  @Outgoing("invoices-adjust")
-//  public Multi<InvoiceAdjust> sendInvoiceAdjustment() {
-//    return Multi.createFrom().ticks().every(Duration.ofSeconds(1))
-//        .map(x -> new InvoiceAdjust("A", "A", LocalDate.now(), 1.11));
-//  }
+  //  @Outgoing("invoices-adjust")
+  //  public Multi<InvoiceAdjust> sendInvoiceAdjustment() {
+  //    return Multi.createFrom().ticks().every(Duration.ofSeconds(1))
+  //        .map(x -> new InvoiceAdjust("A", "A", LocalDate.now(), 1.11));
+  //  }
 
   //  @Outgoing("invoices-adjust-out")
-//  public Uni<InvoiceAdjust> sendInvoiceAdjustment(InvoiceAdjust invoiceAdjust) {
-//    return Uni.createFrom().item(invoiceAdjust);
-//  }
+  //  public Uni<InvoiceAdjust> sendInvoiceAdjustment(InvoiceAdjust invoiceAdjust) {
+  //    return Uni.createFrom().item(invoiceAdjust);
+  //  }
 
   @Incoming("invoices-adjust-in")
   public void processInvoice(ConsumerRecord<String, InvoiceAdjust> record) {
@@ -66,17 +64,32 @@ public class RentalResource {
   @Consumes(MediaType.APPLICATION_JSON)
   public Uni<Rental> start(String userId, Long reservationId) {
     Log.infof("Starting rental for %s with reservation %s", userId, reservationId);
-    Rental rental = new Rental();
-    rental.userId = userId;
-    rental.reservationId = reservationId;
-    rental.startDate = LocalDate.now();
-    rental.active = true;
-    return Panache.withTransaction(rental::save).log("RENTAL");
+    var rentalUni =
+        Rental.findByUserAndReservationIdsOptional(userId, reservationId)
+            .flatMap(
+                Unchecked.function(
+                    optionalRental -> {
+                      if (optionalRental.isPresent()) {
+                        Rental rental = optionalRental.get();
+                        // mark the already started rental as paid
+                        rental.active = true;
+                        return Panache.withTransaction(rental::<Rental>update).log();
+                      } else {
+                        // create new rental starting in the future
+                        Rental rental = new Rental();
+                        rental.userId = userId;
+                        rental.reservationId = reservationId;
+                        rental.startDate = LocalDate.now();
+                        rental.active = true;
+                        return Panache.withTransaction(rental::<Rental>persist).log("RENTAL");
+                      }
+                    }));
+    return rentalUni.log("RENTAL1");
   }
 
   private double computePrice(LocalDate endDate, LocalDate today) {
-    return endDate.isBefore(today) ? ChronoUnit.DAYS.between(endDate, today)
-        * STANDARD_PRICE_FOR_PROLONGED_DAY
+    return endDate.isBefore(today)
+        ? ChronoUnit.DAYS.between(endDate, today) * STANDARD_PRICE_FOR_PROLONGED_DAY
         : ChronoUnit.DAYS.between(today, endDate) * STANDARD_REFUND_RATE_PER_DAY;
   }
 
@@ -84,27 +97,39 @@ public class RentalResource {
   @Path("/end/{userId}/{reservationId}")
   public Uni<Rental> end(String userId, Long reservationId) {
     Log.infof("Ending rental for %s with reservation %s", userId, reservationId);
-    var rentalUni = Rental.findByUserAndReservationIdsOptional(userId, reservationId)
-        .flatMap(Unchecked.function(optionalRental -> {
-          if (optionalRental.isPresent()) {
-            Rental rental = optionalRental.get();
-            rental.endDate = LocalDate.now();
-            rental.active = false;
-            return Panache.withTransaction(rental::save).log();
-          } else {
-            throw new NotFoundException("Rental not found");
-          }
-        }));
+    var rentalUni =
+        Rental.findByUserAndReservationIdsOptional(userId, reservationId)
+            .flatMap(
+                Unchecked.function(
+                    optionalRental -> {
+                      if (optionalRental.isPresent()) {
+                        Rental rental = optionalRental.get();
+                        rental.endDate = LocalDate.now();
+                        rental.active = false;
+                        return Panache.withTransaction(rental::save).log();
+                      } else {
+                        throw new NotFoundException("Rental not found");
+                      }
+                    }))
+            .invoke(
+                r -> {
+                  if (!r.paid) {
+                    Log.warn("Rental is not paid: " + r);
+                  }
+                });
     var reservation = reservationClient.getById(reservationId);
-    return rentalUni.call(r -> reservation.call(res -> {
-      LocalDate today = LocalDate.now();
-      if (!res.endDay().isEqual(today)) {
-        return adjustmentEmitter.send(
-            new InvoiceAdjust(r.id.toString(), userId, today, computePrice(res.endDay(), today)));
-      }
-      return Uni.createFrom().nullItem();
-    }));
-
+    return rentalUni.call(
+        r ->
+            reservation.call(
+                res -> {
+                  LocalDate today = LocalDate.now();
+                  if (!res.endDay().isEqual(today)) {
+                    return adjustmentEmitter.send(
+                        new InvoiceAdjust(
+                            r.id.toString(), userId, today, computePrice(res.endDay(), today)));
+                  }
+                  return Uni.createFrom().nullItem();
+                }));
   }
 
   @GET

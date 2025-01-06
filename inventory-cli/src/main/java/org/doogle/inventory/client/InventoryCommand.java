@@ -27,9 +27,17 @@ public class InventoryCommand implements QuarkusApplication {
 
     if ("add".equals(action) && args.length >= 4 && (args.length - 1) % 3 == 0) {
       Log.infov("args: {0}", "add", args);
-      var carRequests = IntStream.range(0, (args.length - 1) / 3).boxed().map(
-          idx -> InsertCarRequest.newBuilder().setLicensePlateNumber(args[1 + idx * 3])
-              .setManufacturer(args[2 + idx * 3]).setModel(args[1 + idx * 3]).build()).toList();
+      var carRequests =
+          IntStream.range(0, (args.length - 1) / 3)
+              .boxed()
+              .map(
+                  idx ->
+                      InsertCarRequest.newBuilder()
+                          .setLicensePlateNumber(args[1 + idx * 3])
+                          .setManufacturer(args[2 + idx * 3])
+                          .setModel(args[1 + idx * 3])
+                          .build())
+              .toList();
       Multi<InsertCarRequest> multiRequests = Multi.createFrom().iterable(carRequests);
       add(multiRequests);
       return 0;
@@ -45,16 +53,24 @@ public class InventoryCommand implements QuarkusApplication {
     Log.info("in add method adding details...");
 
     Multi<CarResponse> response = inventory.add(carRequestMulti);
-    var carResponseList = response.onFailure().invoke(ExceptionUtils::getStackTrace).collect()
-        .asList().await().indefinitely();
+    var carResponseList =
+        response
+            .onFailure()
+            .invoke(ExceptionUtils::getStackTrace)
+            .collect()
+            .asList()
+            .await()
+            .indefinitely();
     Log.infov("Added Cars... {0}", carResponseList);
   }
 
   public void remove(String licensePlateNumber) {
-    var removedCar = inventory.remove(
-            RemoveCarRequest.newBuilder().setLicensePlateNumber(licensePlateNumber).build())
-        .invoke(carResponse -> System.out.println("Removed car " + carResponse)).await()
-        .indefinitely();
+    var removedCar =
+        inventory
+            .remove(RemoveCarRequest.newBuilder().setLicensePlateNumber(licensePlateNumber).build())
+            .invoke(carResponse -> System.out.println("Removed car " + carResponse))
+            .await()
+            .indefinitely();
     Log.infov("Removed Car... {0}", removedCar);
   }
 }
