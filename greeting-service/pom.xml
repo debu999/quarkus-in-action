@@ -19,7 +19,7 @@
     <skipITs>true</skipITs>
     <surefire-plugin.version>3.5.0</surefire-plugin.version>
   </properties>
-  
+
   <dependencyManagement>
     <dependencies>
       <dependency>
@@ -62,6 +62,10 @@
     <dependency>
       <artifactId>quarkus-smallrye-openapi</artifactId>
       <groupId>io.quarkus</groupId>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-smallrye-health</artifactId>
     </dependency>
   </dependencies>
 
