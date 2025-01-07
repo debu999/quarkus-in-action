@@ -11,7 +11,7 @@ import org.doogle.users.model.Reservation;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 import org.jboss.resteasy.reactive.RestQuery;
 
-@RegisterRestClient(baseUri = "http://localhost:8081")
+@RegisterRestClient(configKey = "reservations")
 @AccessToken
 @Path("reservation")
 public interface ReservationsClient {
@@ -25,6 +25,5 @@ public interface ReservationsClient {
 
   @GET
   @Path("availability")
-  Collection<Car> availability(
-      @RestQuery LocalDate startDate, @RestQuery LocalDate endDate);
+  Collection<Car> availability(@RestQuery LocalDate startDate, @RestQuery LocalDate endDate);
 }

@@ -23,6 +23,8 @@ import org.doogle.reservation.entity.Reservation;
 import org.doogle.reservation.inventory.Car;
 import org.doogle.reservation.inventory.GraphQLInventoryClient;
 import org.doogle.reservation.rental.RentalClient;
+import org.eclipse.microprofile.faulttolerance.Fallback;
+import org.eclipse.microprofile.faulttolerance.Retry;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
@@ -41,14 +43,13 @@ public class ReservationResource {
   @Channel("invoices-out")
   MutinyEmitter<Invoice> invoiceEmitter;
 
-  @Inject
-  SecurityContext context;
+  @Inject SecurityContext context;
 
   public ReservationResource(
-//      ReservationsRepository reservationsRepository,
+      //      ReservationsRepository reservationsRepository,
       @RestClient RentalClient rentalClient,
       @GraphQLClient("inventory") GraphQLInventoryClient inventoryClient) {
-//    this.reservationsRepository = reservationsRepository;
+    //    this.reservationsRepository = reservationsRepository;
     this.rentalClient = rentalClient;
     this.inventoryClient = inventoryClient;
   }
@@ -58,11 +59,20 @@ public class ReservationResource {
         * STANDARD_RATE_PER_DAY;
   }
 
+  public Uni<Collection<Car>> availabilityFallback(LocalDate startDate,
+                                                   LocalDate endDate) {
+    return Uni.createFrom().item(List.of());
+  }
+
   @GET
   @Path("availability")
+  @Fallback(fallbackMethod = "availabilityFallback")
+  @Retry(maxRetries = 25, delay = 1000, delayUnit = ChronoUnit.MILLIS)
+//  @ExponentialBackoff
   public Uni<Collection<Car>> availability(
       @RestQuery @Parameter(name = "startDate", example = "2024-12-21") LocalDate startDate,
       @RestQuery @Parameter(name = "endDate", example = "2024-12-22") LocalDate endDate) {
+    Log.infof("Checking Car availability for %s to %s", startDate, endDate);
     // obtain all cars from inventory
     var availableCars = inventoryClient.allCars();
     // create a map from id to car
@@ -70,41 +80,59 @@ public class ReservationResource {
     // get all current reservations
     Uni<List<Reservation>> reservations = Reservation.listAll();
     // for each reservation, remove the car from the map
-    return Uni.combine().all().unis(carMap, reservations).asTuple().map(tuple -> {
-      var cmap = tuple.getItem1();
-      var res = tuple.getItem2();
-      res.forEach(reservation -> {
-        if (reservation.isReserved(startDate, endDate)) {
-          cmap.remove(reservation.carId);
-        }
-      });
-      return cmap.values();
-    });
+    return Uni.combine()
+        .all()
+        .unis(carMap, reservations)
+        .asTuple()
+        .map(
+            tuple -> {
+              var cmap = tuple.getItem1();
+              var res = tuple.getItem2();
+              res.forEach(
+                  reservation -> {
+                    if (reservation.isReserved(startDate, endDate)) {
+                      cmap.remove(reservation.carId);
+                    }
+                  });
+              return cmap.values();
+            });
   }
 
   @Consumes(MediaType.APPLICATION_JSON)
   @POST
   public Uni<Reservation> make(Reservation reservation) {
-//    return reservationsRepository.save(reservation);
+    //    return reservationsRepository.save(reservation);
     var userId =
         context.getUserPrincipal() != null ? context.getUserPrincipal().getName() : "anonymous";
     //    reservation = reservation.withUserId(userId);
     reservation.userId = userId;
     //    Reservation result = reservationsRepository.save(reservation);
-    return Panache.withTransaction(reservation::<Reservation>persist).log().call(r1 -> {
-      Log.info("Successfully reserved reservation " + r1);
-      var invoiceUni = invoiceEmitter.send(new Invoice(r1, computePrice(r1))).onFailure().invoke(
-          throwable -> Log.infof("Couldn't create invoice for %s. %s%n", r1,
-              throwable.getMessage()));
-      // this is just a dummy value for the time being
-      //    String userId = "x";
-      if (r1.startDay.equals(LocalDate.now())) {
-        return invoiceUni.chain(() -> rentalClient.start(userId, r1.id)
-            .invoke(rental -> Log.info("Successfully started rental " + rental)).replaceWith(r1));
-      }
-      return Uni.createFrom().item(r1);
-
-    });
+    return Panache.withTransaction(reservation::<Reservation>persist)
+        .log()
+        .call(
+            r1 -> {
+              Log.info("Successfully reserved reservation " + r1);
+              var invoiceUni =
+                  invoiceEmitter
+                      .send(new Invoice(r1, computePrice(r1)))
+                      .onFailure()
+                      .invoke(
+                          throwable ->
+                              Log.infof(
+                                  "Couldn't create invoice for %s. %s%n",
+                                  r1, throwable.getMessage()));
+              // this is just a dummy value for the time being
+              //    String userId = "x";
+              if (r1.startDay.equals(LocalDate.now())) {
+                return invoiceUni.chain(
+                    () ->
+                        rentalClient
+                            .start(userId, r1.id)
+                            .invoke(rental -> Log.info("Successfully started rental " + rental))
+                            .replaceWith(r1));
+              }
+              return Uni.createFrom().item(r1);
+            });
   }
 
   @GET
@@ -112,9 +140,11 @@ public class ReservationResource {
   public Uni<Collection<Reservation>> allReservations() {
     String userId =
         context.getUserPrincipal() != null ? context.getUserPrincipal().getName() : null;
-    return Reservation.<Reservation>listAll().map(
-        reservations -> reservations.stream().filter(r -> userId == null || userId.equals(r.userId))
-            .toList());
+    return Reservation.<Reservation>listAll()
+        .map(
+            reservations ->
+                reservations.stream()
+                    .filter(r -> userId == null || userId.equals(r.userId))
+                    .toList());
   }
-
 }
