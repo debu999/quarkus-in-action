@@ -1,0 +1,9 @@
+services:
+  jaeger:
+    image: jaegertracing/jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4317:4317" # OTLP receiver
+      - "4318:4318"
+      - "5778:5778"
+      - "9411:9411"

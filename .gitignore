@@ -49,3 +49,5 @@ nb-configuration.xml
 /target/
 
 **/application-db.properties
+
+**/prometheus.yml
